@@ -1,3 +1,4 @@
+/* vim: set et ts=2 sts=2 sw=2 : */
 /*******************************************************************************************
  *
  *  Fast local alignment filter for long, noisy reads based on "dumbing down" of my RECOMB 2005
@@ -179,6 +180,11 @@ static void *lex_thread(void *arg)
   uint64      c, b;
 
   n = data->end;
+  if (VERBOSE)
+    { printf("\n ----");
+      printf("\n shift=%d, LEX_last=%d, n=%d", shift, LEX_last, n);
+      fflush(stdout);
+    }
   if (shift >= 64)
     { shift -= 64;
       if (LEX_last)
@@ -239,6 +245,10 @@ static void *lex_thread(void *arg)
         for (i = data->beg; i < n; i++)
           { c = src[i].p1;
             x = tptr[c&BMASK]++;
+            if (VERBOSE)
+            { printf("\n @=%p+%d i=%6d,c&=%3d,x=%3d,c=%d ", (void*)trg, (sizeof(Double)*x), i, (c&BMASK), x, c);
+              fflush(stdout);
+            }
             trg[x] = src[i];
             sptr[((c >> qshift) & QMASK) + x/zsize] += 1;
           }
@@ -251,6 +261,10 @@ static void *lex_thread(void *arg)
             sptr[((b >> qshift) & QMASK) + x/zsize] += 1;
           }
 
+  if (VERBOSE)
+    { printf("\n Finished @%p n=%d", (void*)trg, n);
+      fflush(stdout);
+    }
   return (NULL);
 }
 
@@ -685,6 +699,21 @@ void *Sort_Kmers(HITS_DB *block, int *len)
   if (kmers <= 0)
     goto no_mers;
 
+  if (VERBOSE)
+  {
+    printf("\n Kshift=%d", Kshift);
+    printf("\n BSHIFT=%d", BSHIFT);
+    printf("\n TooFrequent=%d", TooFrequent);
+    printf("\n (Kshift-1)/BSHIFT + (TooFrequent < INT32_MAX)=%d", ((Kshift-1)/BSHIFT + (TooFrequent < INT32_MAX)));
+    printf("\n sizeof(KmerPos)=%ld", sizeof(KmerPos));
+    printf("\n nreads=%d", nreads);
+    printf("\n Kmer=%d", Kmer);
+    printf("\n block->reads[nreads].boff=%lld", (block->reads[nreads].boff));
+    printf("\n kmers=%d", kmers);
+    printf("\n sizeof(KmerPos)*(kmers+1)=%ld", (sizeof(KmerPos)*(kmers+1)));
+    fflush(stdout);
+  }
+
   if (( (Kshift-1)/BSHIFT + (TooFrequent < INT32_MAX) ) & 0x1)
     { trg = (KmerPos *) Malloc(sizeof(KmerPos)*(kmers+1),"Allocating Sort_Kmers vectors");
       src = (KmerPos *) Malloc(sizeof(KmerPos)*(kmers+1),"Allocating Sort_Kmers vectors");
@@ -693,6 +722,7 @@ void *Sort_Kmers(HITS_DB *block, int *len)
     { src = (KmerPos *) Malloc(sizeof(KmerPos)*(kmers+1),"Allocating Sort_Kmers vectors");
       trg = (KmerPos *) Malloc(sizeof(KmerPos)*(kmers+1),"Allocating Sort_Kmers vectors");
     }
+  if (VERBOSE) printf("\n Allocated %d of %d (%d bytes) at %p", (kmers+1), sizeof(KmerPos), (sizeof(KmerPos)*(kmers+1)), (void*)trg);
   if (src == NULL || trg == NULL)
     exit (1);
 

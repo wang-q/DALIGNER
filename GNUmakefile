@@ -26,5 +26,5 @@ clean:
 .PHONY: clean all
 
 SRCS:=$(notdir $(wildcard ${THISDIR}/*.c))
-DEPS:=$(patsubst %.c,%.d,${SRCS})
--include ${DEPS}
+#DEPS:=$(patsubst %.c,%.d,${SRCS})
+#-include ${DEPS}

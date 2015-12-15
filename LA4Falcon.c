@@ -367,6 +367,10 @@ int main(int argc, char *argv[])
     if (fread(&tspace,sizeof(int),1,input) != 1)
       SYSTEM_ERROR
 
+    if (tspace == 0) {
+        printf("\nCRITICAL ERROR: tspace=0 in '%s'", root);
+        exit(1);
+    }
     if (tspace <= TRACE_XOVR)
       { small  = 1;
         tbytes = sizeof(uint8);

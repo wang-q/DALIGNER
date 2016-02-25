@@ -628,9 +628,14 @@ int main(int argc, char *argv[])
                     Load_Read(db2, hits[tmp_idx].r_id, bbuffer, 0);
                     if (hits[tmp_idx].t_o) Complement_Seq(bbuffer, hits[tmp_idx].t_l );
                     Upper_Read(bbuffer);
-                    strncpy( buffer, bbuffer + hits[tmp_idx].t_s, (int64) hits[tmp_idx].t_e - (int64) hits[tmp_idx].t_s );
-                    buffer[ (int64) hits[tmp_idx].t_e - (int64) hits[tmp_idx].t_s - 1] = '\0';
-                    printf("%08d %s\n", hits[tmp_idx].r_id, buffer);
+                    int64 rlen = (int64)(hits[tmp_idx].t_e) - (int64)(hits[tmp_idx].t_s);
+                    if (rlen < sizeof(buffer)) {
+                        strncpy( buffer, bbuffer + hits[tmp_idx].t_s, (int64) hits[tmp_idx].t_e - (int64) hits[tmp_idx].t_s );
+                        buffer[ (int64) hits[tmp_idx].t_e - (int64) hits[tmp_idx].t_s - 1] = '\0'; // Does this drop a base? ~cd
+                        printf("%08d %s\n", hits[tmp_idx].r_id, buffer);
+                    } else {
+                        fprintf(stderr, "[WARNING]Skipping super-long read %08d, len=%lld\n", hits[tmp_idx].r_id, rlen);
+                    }
                 }
                 hit_count = 0;
 

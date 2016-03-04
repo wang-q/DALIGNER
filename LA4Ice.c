@@ -283,7 +283,7 @@ int main(int argc, char *argv[])
   }
 
   //  Read the file and display selected records
-  
+  if (tspace > 0)
   { int        j;
     uint16    *trace;
     Work_Data *work;
@@ -547,16 +547,17 @@ int main(int argc, char *argv[])
           }
       }
 
-    if (M4OVL) {
-        printf("+ +\n");
-        printf("- -\n");
-    }
     free(trace);
     if (ALIGN)
       { free(bbuffer-1);
         free(abuffer-1);
         Free_Work_Data(work);
       }
+  }
+
+  if (M4OVL) {
+    printf("+ +\n");
+    printf("- -\n");
   }
 
   Close_DB(db1);

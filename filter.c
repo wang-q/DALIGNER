@@ -116,7 +116,6 @@ static int Suppress;
 
 static int    Kshift;         //  2*Kmer
 static uint64 Kmask;          //  4^Kmer-1
-static uint64 Kpowr;          //  4^Kmer
 static int    TooFrequent;    //  (Suppress != 0) ? Suppress : INT32_MAX
 
 int Set_Filter_Params(int kmer, int binshift, int suppress, int hitmin)
@@ -129,8 +128,10 @@ int Set_Filter_Params(int kmer, int binshift, int suppress, int hitmin)
   Hitmin   = hitmin;
 
   Kshift = 2*Kmer;
-  Kpowr  = (0x1llu << Kshift);
-  Kmask  = Kpowr-1;
+  if (Kmer == 32)
+    Kmask = 0xffffffffffffffffllu;
+  else
+    Kmask = (0x1llu << Kshift) - 1;
 
   if (Suppress == 0)
     TooFrequent = INT32_MAX;
@@ -416,13 +417,12 @@ static void *tuple_thread(void *arg)
       int64     *anno1 = ((int64 *) (TA_track->anno)) + 1;
       int       *point = (int *) (TA_track->data);
       int64      a, b, f; 
-      int        q;
+      int        q = 0;
 
       f = anno1[i-1];
       for (m = (c * (tnum+1)) >> NSHIFT; i < m; i++)
         { b = f;
           f = anno1[i];
-          q = reads[i].rlen;
           for (a = b; a <= f; a += 2)
             { if (a == b)
                 p = 0;
@@ -500,14 +500,13 @@ static void *biased_tuple_thread(void *arg)
       int64     *anno1 = ((int64 *) (TA_track->anno)) + 1;
       int       *point = (int *) (TA_track->data);
       int64      j, b, f; 
-      int        q;
+      int        q = 0;
 
       f = anno1[i-1];
       for (m = (c * (tnum+1)) >> NSHIFT; i < m; i++)
         { b = f;
           f = anno1[i];
           t = s+1;
-          q = reads[i].rlen;
           for (j = b; j <= f; j += 2)
             { if (j == b)
                 p = 0;
@@ -717,12 +716,12 @@ void *Sort_Kmers(HITS_DB *block, int *len)
   }
 
   if (( (Kshift-1)/BSHIFT + (TooFrequent < INT32_MAX) ) & 0x1)
-    { trg = (KmerPos *) Malloc(sizeof(KmerPos)*(kmers+1),"Allocating Sort_Kmers vectors");
-      src = (KmerPos *) Malloc(sizeof(KmerPos)*(kmers+1),"Allocating Sort_Kmers vectors");
+    { trg = (KmerPos *) Malloc(sizeof(KmerPos)*(kmers+2),"Allocating Sort_Kmers vectors");
+      src = (KmerPos *) Malloc(sizeof(KmerPos)*(kmers+2),"Allocating Sort_Kmers vectors");
     }
   else
-    { src = (KmerPos *) Malloc(sizeof(KmerPos)*(kmers+1),"Allocating Sort_Kmers vectors");
-      trg = (KmerPos *) Malloc(sizeof(KmerPos)*(kmers+1),"Allocating Sort_Kmers vectors");
+    { src = (KmerPos *) Malloc(sizeof(KmerPos)*(kmers+2),"Allocating Sort_Kmers vectors");
+      trg = (KmerPos *) Malloc(sizeof(KmerPos)*(kmers+2),"Allocating Sort_Kmers vectors");
     }
   if (VERBOSE) printf("\n Allocated %d of %ld (%lu bytes) at %p", (kmers+1), sizeof(KmerPos), (sizeof(KmerPos)*(kmers+1)), (void*)trg);
   if (src == NULL || trg == NULL)
@@ -767,7 +766,6 @@ void *Sort_Kmers(HITS_DB *block, int *len)
   if (BIASED || TA_track != NULL)
     for (i = 0; i < NTHREADS; i++)
       kmers -= parmt[i].fill;
-  rez[kmers].code = Kpowr;
 
   if (TooFrequent < INT32_MAX && kmers > 0)
     { parmf[0].beg = 0;
@@ -779,6 +777,11 @@ void *Sort_Kmers(HITS_DB *block, int *len)
           parmf[i-1].end = parmf[i].beg = x;
         }
       parmf[NTHREADS-1].end = kmers;
+
+      if (rez[kmers-1].code == 0xffffffffffffffffllu)
+        rez[kmers].code = 0;
+      else
+        rez[kmers].code = 0xffffffffffffffffllu;
 
       if (src == rez)
         { FR_src = src;
@@ -808,9 +811,10 @@ void *Sort_Kmers(HITS_DB *block, int *len)
 
       for (i = 0; i < NTHREADS; i++)
         pthread_join(threads[i],NULL);
-
-      rez[kmers].code = Kpowr;
     }
+
+  rez[kmers].code   = 0xffffffffffffffffllu;
+  rez[kmers+1].code = 0;
     
   if (src != rez)
     free(src);
@@ -830,7 +834,7 @@ void *Sort_Kmers(HITS_DB *block, int *len)
 #endif
 
   if (VERBOSE)
-    { if (TooFrequent < INT32_MAX)
+    { if (TooFrequent < INT32_MAX || BIASED || TA_track != NULL)
         { printf("   Revised kmer count = ");
           Print_Number((int64) kmers,0,stdout);
           printf("\n");
@@ -844,7 +848,7 @@ void *Sort_Kmers(HITS_DB *block, int *len)
       goto no_mers;
     }
 
-  if (MEM_LIMIT > 0 && kmers > (int64) (MEM_LIMIT/(4*sizeof(KmerPos))))
+  if (kmers > (int64) (MEM_LIMIT/(4*sizeof(KmerPos))))
     { fprintf(stderr,"Warning: Block size too big, index occupies more than 1/4 of");
       if (MEM_LIMIT == MEM_PHYSICAL)
         fprintf(stderr," physical memory (%.1fGb)\n",(1.*MEM_LIMIT)/0x40000000ll);
@@ -915,7 +919,8 @@ static void *count_thread(void *arg)
   int    jb, ja;
   uint64 ca, cb;
   uint64 da, db;
-  int    ar;
+  int    ar, ap;
+  int    a, b;
 
   ia = data->abeg;
   ca = asort[ia].code;
@@ -928,36 +933,45 @@ static void *count_thread(void *arg)
           while (cb > ca)
             ca = asort[++ia].code;
           if (cb == ca)
-            { if (ia >= aend) break;
+            { ja = ia++;
+              while ((da = asort[ia].code) == ca)
+                ia += 1;
+              jb = ib++;
+              while ((db = bsort[ib].code) == cb)
+                ib += 1;
+
+              if (ia > aend)
+                { if (ja >= aend)
+                    break;
+                  da = asort[ia = aend].code;
+                  db = bsort[ib = data->bend].code;
+                }
 
               ct = 0;
-              jb = ib;
-              db = cb;
+              b  = jb;
               if (IDENTITY)
-                do
-                  { ar = asort[ia].read;
+                for (a = ja; a < ia; a++)
+                  { ar = asort[a].read;
                     if (MG_comp)
-                      while (db == cb && bsort[ib].read <= ar)
-                        db = bsort[++ib].code;
-                    else
-                      { while (db == cb && bsort[ib].read < ar)
-                          db = bsort[++ib].code;
-                        while (db == cb && bsort[ib].read == ar && bsort[ib].rpos < asort[ia].rpos)
-                          db = bsort[++ib].code;
+                      { while (b < ib && bsort[b].read <= ar)
+                          b += 1;
                       }
-                    ct += (ib-jb);
+                    else
+                      { ap = asort[a].rpos;
+                        while (b < ib && bsort[b].read < ar)
+                          b += 1;
+                        while (b < ib && bsort[b].read == ar && bsort[b].rpos < ap)
+                          b += 1;
+                      }
+                    ct += (b-jb);
                   }
-                while ((da = asort[++ia].code) == ca);
               else
-                do
-                  { ar = asort[ia].read;
-                    while (db == cb && bsort[ib].read < ar)
-                      db = bsort[++ib].code;
-                    ct += (ib-jb);
+                for (a = ja; a < ia; a++)
+                  { ar = asort[a].read;
+                    while (b < ib && bsort[b].read < ar)
+                      b += 1;
+                    ct += (b-jb);
                   }
-              while ((da = asort[++ia].code) == ca);
-              while (db == cb)
-                db = bsort[++ib].code;
 
               nhits += ct;
               ca = da;
@@ -975,14 +989,19 @@ static void *count_thread(void *arg)
           while (cb > ca)
             ca = asort[++ia].code;
           if (cb == ca)
-            { if (ia >= aend) break;
-
-              ja = ia++;
+            { ja = ia++;
               while ((da = asort[ia].code) == ca)
                 ia += 1;
               jb = ib++;
               while ((db = bsort[ib].code) == cb)
                 ib += 1;
+
+              if (ia > aend)
+                { if (ja >= aend)
+                    break;
+                  da = asort[ia = aend].code;
+                  db = bsort[ib = data->bend].code;
+                }
 
               ct  = (ia-ja);
               ct *= (ib-jb);
@@ -1021,7 +1040,7 @@ static void *merge_thread(void *arg)
   uint64 ca, cb;
   uint64 da, db;
   int    ar, ap;
-  int    a, b;
+  int    a, b, c;
 
   ia = data->abeg;
   ca = asort[ia].code;
@@ -1034,62 +1053,69 @@ static void *merge_thread(void *arg)
           while (cb > ca)
             ca = asort[++ia].code;
           if (cb == ca)
-            { if (ia >= aend) break;
+            { ja = ia++;
+              while ((da = asort[ia].code) == ca)
+                ia += 1;
+              jb = ib++;
+              while ((db = bsort[ib].code) == cb)
+                ib += 1;
+
+              if (ia > aend)
+                { if (ja >= aend)
+                    break;
+                  da = asort[ia = aend].code;
+                  db = bsort[ib = data->bend].code;
+                }
 
               ct = 0;
-              ja = ia;
-              jb = ib;
-              db = cb;
+              b  = jb;
               if (IDENTITY)
-                do
-                  { ar = asort[ia].read;
-                    ap = asort[ia].rpos;
+                for (a = ja; a < ia; a++)
+                  { ar = asort[a].read;
                     if (MG_comp)
-                      while (db == cb && bsort[ib].read <= ar)
-                        db = bsort[++ib].code;
-                    else
-                      { while (db == cb && bsort[ib].read < ar)
-                          db = bsort[++ib].code;
-                        while (db == cb && bsort[ib].read == ar && bsort[ib].rpos < ap)
-                          db = bsort[++ib].code;
+                      { while (b < ib && bsort[b].read <= ar)
+                          b += 1;
                       }
-                    ct += (ib-jb);
+                    else
+                      { ap = asort[a].rpos;
+                        while (b < ib && bsort[b].read < ar)
+                          b += 1;
+                        while (b < ib && bsort[b].read == ar && bsort[b].rpos < ap)
+                          b += 1;
+                      }
+                    ct += (b-jb);
                   }
-                while ((da = asort[++ia].code) == ca);
               else
-                do
-                  { ar = asort[ia].read;
-                    while (db == cb && bsort[ib].read < ar)
-                      db = bsort[++ib].code;
-                    ct += (ib-jb);
+                for (a = ja; a < ia; a++)
+                  { ar = asort[a].read;
+                    while (b < ib && bsort[b].read < ar)
+                      b += 1;
+                    ct += (b-jb);
                   }
-                while ((da = asort[++ia].code) == ca);
-              while (db == cb)
-                db = bsort[++ib].code;
 
               if (ct < limit)
-                { ib = jb;
-                  db = cb;
+                { b = jb;
                   if (IDENTITY)
                     for (a = ja; a < ia; a++)
                       { ap = asort[a].rpos;
                         ar = asort[a].read;
                         if (MG_comp)
-                          while (db == cb && bsort[ib].read <= ar)
-                            db = bsort[++ib].code;
-                        else
-                          { while (db == cb && bsort[ib].read < ar)
-                              db = bsort[++ib].code;
-                            while (db == cb && bsort[ib].read == ar && bsort[ib].rpos < ap)
-                              db = bsort[++ib].code;
+                          { while (b < ib && bsort[b].read <= ar)
+                              b += 1;
                           }
-                        if ((ct = ib-jb) > 0)
+                        else
+                          { while (b < ib && bsort[b].read < ar)
+                              b += 1;
+                            while (b < ib && bsort[b].read == ar && bsort[b].rpos < ap)
+                              b += 1;
+                          }
+                        if ((ct = b-jb) > 0)
                           { kptr[ap & BMASK] += ct;
-                            for (b = jb; b < ib; b++)
-                              { hits[nhits].bread = bsort[b].read;
+                            for (c = jb; c < b; c++)
+                              { hits[nhits].bread = bsort[c].read;
                                 hits[nhits].aread = ar;
                                 hits[nhits].apos  = ap; 
-                                hits[nhits].diag  = ap - bsort[b].rpos;
+                                hits[nhits].diag  = ap - bsort[c].rpos;
                                 nhits += 1;
                               }
                           }
@@ -1098,21 +1124,19 @@ static void *merge_thread(void *arg)
                     for (a = ja; a < ia; a++)
                       { ap = asort[a].rpos;
                         ar = asort[a].read;
-                        while (db == cb && bsort[ib].read < ar)
-                          db = bsort[++ib].code;
-                        if ((ct = ib-jb) > 0)
+                        while (b < ib && bsort[b].read < ar)
+                          b += 1;
+                        if ((ct = b-jb) > 0)
                           { kptr[ap & BMASK] += ct;
-                            for (b = jb; b < ib; b++)
-                              { hits[nhits].bread = bsort[b].read;
+                            for (c = jb; c < b; c++)
+                              { hits[nhits].bread = bsort[c].read;
                                 hits[nhits].aread = ar;
                                 hits[nhits].apos  = ap; 
-                                hits[nhits].diag  = ap - bsort[b].rpos;
+                                hits[nhits].diag  = ap - bsort[c].rpos;
                                 nhits += 1;
                               }
                           }
                       }
-                  while (db == cb)
-                    db = bsort[++ib].code;
                 }
               ca = da;
               cb = db;
@@ -1133,6 +1157,14 @@ static void *merge_thread(void *arg)
               jb = ib++;
               while ((db = bsort[ib].code) == cb)
                 ib += 1;
+
+              if (ia > aend)
+                { if (ja >= aend)
+                    break;
+                  da = asort[ia = aend].code;
+                  db = bsort[ib = data->bend].code;
+                }
+
               ct = ib-jb;
               if ((ia-ja)*ct < limit)
                 { for (a = ja; a < ia; a++)
@@ -1884,6 +1916,8 @@ void Match_Filter(char *aname, HITS_DB *ablock, char *bname, HITS_DB *bblock,
   atot = ablock->totlen;
   btot = bblock->totlen;
 
+  MR_tspace = Trace_Spacing(aspec);
+
   { int64 powr;
     int   i, nbyte;
 
@@ -2117,7 +2151,6 @@ void Match_Filter(char *aname, HITS_DB *ablock, char *bname, HITS_DB *bblock,
     MR_hits   = khit;
     MR_two    = ! MG_self && SYMMETRIC;
     MR_spec   = aspec;
-    MR_tspace = Trace_Spacing(aspec);
 
     parmr[0].beg = 0;
     for (i = 1; i < NTHREADS; i++)

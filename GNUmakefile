@@ -1,11 +1,12 @@
 THISDIR:=$(abspath $(dir $(realpath $(lastword ${MAKEFILE_LIST}))))
 LIBDIRS?=${THISDIR}/../DAZZ_DB
 CFLAGS+= -O3 -Wall -Wextra -fno-strict-aliasing -Wno-unused-result
-CPPFLAGS+= -MMD -MP -I${THISDIR}/../DAZZ_DB
+CPPFLAGS+= -I${THISDIR}/../DAZZ_DB
+#CPPFLAGS+= -MMD -MP
 LDLIBS+= -ldazzdb -lm -lpthread
 LDFLAGS+= $(patsubst %,-L%,${LIBDIRS})
-MOST = daligner HPCdaligner HPCmapper LAsort LAmerge LAsplit LAcat LAshow LAcheck LA4Falcon LA4Ice DB2Falcon
-ALL:=${MOST} daligner_p
+MOST = daligner HPC.daligner LAsort LAmerge LAsplit LAcat LAshow LAdump LAcheck LAindex
+ALL:=${MOST} daligner_p LA4Falcon LA4Ice DB2Falcon
 vpath %.c ${THISDIR}
 vpath %.a ${THISDIR}/../DAZZ_DB
 
@@ -21,7 +22,7 @@ install:
 clean:
 	rm -f ${ALL}
 	rm -f ${DEPS}
-	rm -fr *.dSYM *.o
+	rm -fr *.dSYM *.o *.d
 
 .PHONY: clean all
 

@@ -19,6 +19,8 @@ ${ALL}: align.o
 
 install:
 	cp -f ${ALL} ${PREFIX}/bin
+symlink:
+	ln -sf $(addprefix ${THISDIR}/,${ALL}) ${PREFIX}/bin
 clean:
 	rm -f ${ALL}
 	rm -f ${DEPS}

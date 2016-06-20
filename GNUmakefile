@@ -18,7 +18,7 @@ daligner_p: filter_p.o
 ${ALL}: align.o
 
 install:
-	cp -f ${ALL} ${PREFIX}/bin
+	rsync -av ${ALL} ${PREFIX}/bin
 symlink:
 	ln -sf $(addprefix ${THISDIR}/,${ALL}) ${PREFIX}/bin
 clean:

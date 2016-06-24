@@ -1,7 +1,7 @@
 THISDIR:=$(abspath $(dir $(realpath $(lastword ${MAKEFILE_LIST}))))
 LIBDIRS?=${THISDIR}/../DAZZ_DB
 CFLAGS+= -O3 -Wall -Wextra -fno-strict-aliasing -Wno-unused-result
-CPPFLAGS+= -I${THISDIR}/../DAZZ_DB
+CPPFLAGS+= -I${THISDIR}/../DAZZ_DB -I${PREFIX}/include
 #CPPFLAGS+= -MMD -MP
 LDLIBS+= -ldazzdb -lm -lpthread
 LDFLAGS+= $(patsubst %,-L%,${LIBDIRS})

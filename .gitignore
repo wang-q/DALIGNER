@@ -1,5 +1,5 @@
 /daligner
-/HPCdaligner
+/HPC.daligner
 /HPCmapper
 /LAsort
 /LAmerge
@@ -7,6 +7,8 @@
 /LAcat
 /LAshow
 /LAcheck
+/LAdump
+/LAindex
 
 /LA4Falcon
 /LA4Ice

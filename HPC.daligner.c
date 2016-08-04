@@ -24,10 +24,10 @@
 
 static char *Usage[] =
   { "[-vbad] [-t<int>] [-w<int(6)>] [-l<int(1000)>] [-s<int(100)]",
-    "        [-M<int>] [-B<int(4)>] [-D<int( 250)>] [-m<track>]+",
+    "        [-M<int>] [-B<int(4)>] [-D<int( 250)>] [-T<int(4)>] [-f<name>]",
     "      ( [-k<int(14)>] [-h<int(35)>] [-e<double(.70)>] [-AI] [-H<int>] |",
     "        [-k<int(20)>] [-h<int(50)>] [-e<double(.85)>]  <ref:db|dam>   )",
-    "        [-f<name>] <reads:db|dam> [<first:int>[-<last:int>]"
+    "        [-m<track>]+ <reads:db|dam> [<first:int>[-<last:int>]"
   };
 
   //  Command Options
@@ -35,19 +35,11 @@ static char *Usage[] =
 static int    DUNIT, BUNIT;
 static int    VON, BON, AON, ION, CON, DON;
 static int    WINT, TINT, HGAP, HINT, KINT, SINT, LINT, MINT;
+static int    NTHREADS;
 static double EREL;
 static int    MMAX, MTOP;
 static char **MASK;
 static char  *ONAME;
-
-static int power(int base, int exp)
-{ int i, pow;
-
-  pow = 1;
-  for (i = 0; i < exp; i++)
-    pow *= base;
-  return (pow);
-}
 
 #define LSF_ALIGN "bsub -q medium -n 4 -o DALIGNER.out -e DALIGNER.err -R span[hosts=1] -J align#%d"
 #define LSF_SORT  "bsub -q short -n 12 -o SORT.DAL.out -e SORT.DAL.err -R span[hosts=1] -J sort#%d"
@@ -246,6 +238,8 @@ void daligner_script(int argc, char *argv[])
               fprintf(out," -s%d",SINT);
             if (MINT >= 0)
               fprintf(out," -M%d",MINT);
+            if (NTHREADS != 4)
+              fprintf(out," -T%d",NTHREADS);
             for (k = 0; k < MTOP; k++)
               fprintf(out," -m%s",MASK[k]);
             if (useblock)
@@ -495,21 +489,15 @@ void daligner_script(int argc, char *argv[])
     //  Higher level merges (if lblock > 1)
 
     if (lblock > 1)
-      { int  pow, mway;
-        int  stage;
+      { int pow, stage;
 
-        //  Determine most balance mway for merging in ceil(log_mrg lblock) levels
+        //  Determine the number of merging levels
 
         stage = 5;
 
         pow = 1;
         for (level = 0; pow < lblock; level++)
           pow *= DUNIT;
-
-        for (mway = DUNIT; mway >= 3; mway--)
-          if (power(mway,level) < lblock)
-            break;
-        mway += 1;
 
         //  Issue the commands for each merge level
 
@@ -526,8 +514,8 @@ void daligner_script(int argc, char *argv[])
                   out = fopen(name,"w");
                 }
 
-              bits = (cnt-1)/mway+1;
-              dits = (dnt-1)/mway+1;
+              bits = (cnt-1)/DUNIT+1;
+              dits = (dnt-1)/DUNIT+1;
 
               //  Incremental update merges
 
@@ -1048,6 +1036,8 @@ void mapper_script(int argc, char *argv[])
               fprintf(out," -l%d",LINT);
             if (SINT != 100)
               fprintf(out," -s%d",SINT);
+            if (NTHREADS != 4)
+              fprintf(out," -T%d",NTHREADS);
             if (MINT >= 0)
               fprintf(out," -M%d",MINT);
             for (k = 0; k < MTOP; k++)
@@ -1181,24 +1171,25 @@ void mapper_script(int argc, char *argv[])
 #endif
     for (j = fblock; j <= lblock; j++)
       for (i = 1; i <= nblocks1; )
-        { k = j+BUNIT;
+        { k = i+BUNIT;
           if (k > nblocks1)
             k = nblocks1;
 #ifdef LSF
           fprintf(out,LSF_CHECK,0,0,jobid++);
           fprintf(out," \"");
 #endif
-          fprintf(out,"LAcheck -vS ");
+          fprintf(out,"LAcheck -vS");
           if (usepath2)
-            fprintf(out,"%s/%s ",pwd2,root2);
+            fprintf(out," %s/%s",pwd2,root2);
           else
-            fprintf(out,"%s ",root2);
+            fprintf(out," %s",root2);
           if (usepath1)
-            fprintf(out,"%s/%s ",pwd1,root1);
+            fprintf(out," %s/%s",pwd1,root1);
           else
-            fprintf(out,"%s ",root1);
+            fprintf(out," %s",root1);
           while (i <= k)
-            { if (nblocks1 == 1)
+            { fprintf(out," ");
+              if (nblocks1 == 1)
                 { if (usepath2)
                     fprintf(out,"%s/",pwd2);
                   fprintf(out,"%s",root2);
@@ -1259,21 +1250,15 @@ void mapper_script(int argc, char *argv[])
     //  Higher level merges (if lblock > 1)
 
     if (nblocks1 > 1)
-      { int pow, mway;
-        int  stage;
+      { int pow, stage;
 
-        //  Determine most balance mway for merging in ceil(log_mrg nblock1) levels
+        //  Determine the number of merging levels
 
         stage = 5;
 
         pow = 1;
         for (level = 0; pow < nblocks1; level++)
           pow *= DUNIT;
-
-        for (mway = DUNIT; mway >= 3; mway--)
-          if (power(mway,level) < nblocks1)
-            break;
-        mway += 1;
 
         //  Issue the commands for each merge level
 
@@ -1289,7 +1274,7 @@ void mapper_script(int argc, char *argv[])
                   out = fopen(name,"w");
                 }
 
-              bits = (cnt-1)/mway+1;
+              bits = (cnt-1)/DUNIT+1;
               fprintf(out,"# Level %d jobs (%d)\n",i,bits*((lblock-fblock)+1));
 
               //  Block merges
@@ -1353,24 +1338,25 @@ void mapper_script(int argc, char *argv[])
 #endif
               for (j = fblock; j <= lblock; j++) 
                 for (p = 1; p <= bits; )
-                  { k = j+BUNIT;
+                  { k = p+BUNIT;
                     if (k > bits)
                       k = bits;
 #ifdef LSF
                     fprintf(out,LSF_CHECK,0,0,jobid++);
                     fprintf(out," \"");
 #endif
-                    fprintf(out,"LAcheck -vS ");
+                    fprintf(out,"LAcheck -vS");
                     if (usepath2)
-                      fprintf(out,"%s/%s ",pwd2,root2);
+                      fprintf(out," %s/%s",pwd2,root2);
                     else
-                      fprintf(out,"%s ",root2);
+                      fprintf(out," %s",root2);
                     if (usepath1)
-                      fprintf(out,"%s/%s ",pwd1,root1);
+                      fprintf(out," %s/%s",pwd1,root1);
                     else
-                      fprintf(out,"%s ",root1);
+                      fprintf(out," %s",root1);
                     while (p <= k)
-                      { if (i == level)
+                      { fprintf(out," ");
+                        if (i == level)
                           { if (usepath2)
                               fprintf(out,"%s/",pwd2);
                             fprintf(out,"%s",root2);
@@ -1464,6 +1450,8 @@ int main(int argc, char *argv[])
     exit (1);
   ONAME = NULL;
 
+  NTHREADS = 4;
+
   j = 1;
   for (i = 1; i < argc; i++)
     if (argv[i][0] == '-')
@@ -1525,6 +1513,9 @@ int main(int argc, char *argv[])
         case 'M':
           ARG_NON_NEGATIVE(MINT,"Memory allocation (in Gb)")
           break;
+        case 'T':
+          ARG_POSITIVE(NTHREADS,"Number of threads")
+          break;
       }
     else
       argv[j++] = argv[i];
@@ -1580,6 +1571,10 @@ int main(int argc, char *argv[])
       if (HINT <= 0)
         HINT = 35;
     }
+
+  for (j = 1; 2*j <= NTHREADS; j *= 2)
+    ;
+  NTHREADS = j;
 
   if (mapper)
     mapper_script(argc,argv);

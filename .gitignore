@@ -1,3 +1,4 @@
+/build/
 /daligner
 /HPC.daligner
 /HPCmapper
@@ -18,3 +19,4 @@
 
 *.o
 *.d
+*.swp

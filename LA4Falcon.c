@@ -83,6 +83,25 @@ static int compare_hits(const void  * h1, const void *h2) {
     return ((hit_record *) h2)->score - ((hit_record *) h1)->score;
 }
 
+static void print_hits(const int hit_count, HITS_DB *db2, char *bbuffer, char buffer[], int64 bsize, const int MAX_HIT_COUNT) {
+    int tmp_idx;
+    qsort(ovlgrps, (hit_count+1), sizeof(OverlapGroup), compare_ovlgrps);
+    for (tmp_idx = 0; tmp_idx < (hit_count+1) && tmp_idx < MAX_HIT_COUNT; tmp_idx++) {
+        OverlapGroup *grp = &ovlgrps[tmp_idx];
+        Load_Read(db2, grp->end.bread, bbuffer, 0);
+        if (COMP(grp->end.flags)) Complement_Seq(bbuffer, grp->blen );
+        Upper_Read(bbuffer);
+        int64 const rlen = (int64)(grp->end.path.bepos) - (int64)(grp->beg.path.bbpos);
+        if (rlen < bsize) {
+            strncpy( buffer, bbuffer + grp->beg.path.bbpos, rlen );
+            buffer[rlen - 1] = '\0';
+            printf("%08d %s\n", grp->end.bread, buffer);
+        } else {
+            fprintf(stderr, "[WARNING]Skipping super-long read %08d, len=%lld, buf=%lld\n", grp->end.bread, rlen, bsize);
+        }
+    }
+    printf("+ +\n");
+}
 
 static char *Usage[] =
     { "[-mfsocarUFM] [-i<int(4)>] [-w<int(100)>] [-b<int(10)>] ",
@@ -622,24 +641,8 @@ int main(int argc, char *argv[])
                 skip_rest = 0;
             }
             if (p_aread != ovl -> aread ) {
-                int tmp_idx;
-                qsort( hits, hit_count, sizeof(hit_record), compare_hits );
-                for (tmp_idx = 0; tmp_idx < hit_count && tmp_idx < MAX_HIT_COUNT; tmp_idx++) {
-                    Load_Read(db2, hits[tmp_idx].r_id, bbuffer, 0);
-                    if (hits[tmp_idx].t_o) Complement_Seq(bbuffer, hits[tmp_idx].t_l );
-                    Upper_Read(bbuffer);
-                    int64 const rlen = (int64)(hits[tmp_idx].t_e) - (int64)(hits[tmp_idx].t_s);
-                    if (rlen < (int64)sizeof(buffer)) {
-                        strncpy( buffer, bbuffer + hits[tmp_idx].t_s, rlen );
-                        buffer[rlen - 1] = '\0';
-                        printf("%08d %s\n", hits[tmp_idx].r_id, buffer);
-                    } else {
-                        fprintf(stderr, "[WARNING]Skipping super-long read %08d, len=%lld\n", hits[tmp_idx].r_id, rlen);
-                    }
-                }
+                print_hits(hit_count, db2, bbuffer, buffer, MAX_HIT_COUNT);
                 hit_count = 0;
-
-                printf("+ +\n");
                 Load_Read(db1, ovl->aread, abuffer, 2);
                 printf("%08d %s\n", ovl->aread, abuffer);
                 p_aread = ovl->aread;
@@ -770,17 +773,7 @@ int main(int argc, char *argv[])
 
     if (FALCON)
       {
-        qsort( hits, hit_count, sizeof(hit_record), compare_hits );
-        int tmp_idx;
-        for (tmp_idx = 0; tmp_idx < hit_count && tmp_idx < MAX_HIT_COUNT; tmp_idx++) {
-            Load_Read(db2, hits[tmp_idx].r_id, bbuffer, 0);
-            if (hits[tmp_idx].t_o) Complement_Seq(bbuffer, hits[tmp_idx].t_l );
-            Upper_Read(bbuffer);
-            strncpy( buffer, bbuffer + hits[tmp_idx].t_s, (int64) hits[tmp_idx].t_e - (int64) hits[tmp_idx].t_s );
-            buffer[ (int64) hits[tmp_idx].t_e - (int64) hits[tmp_idx].t_s - 1] = '\0';
-            printf("%08d %s\n", hits[tmp_idx].r_id, buffer);
-        }
-        printf("+ +\n");
+        print_hits(hit_count, db2, bbuffer, buffer, MAX_HIT_COUNT);
         printf("- -\n");
         free(hits);
       }

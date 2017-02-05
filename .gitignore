@@ -1,7 +1,6 @@
 /build/
 /daligner
 /HPC.daligner
-/HPCmapper
 /LAsort
 /LAmerge
 /LAsplit
@@ -15,8 +14,21 @@
 /LA4Ice
 /DB2Falcon
 /DB.so
-/daligner_p
 
 *.o
+*.so
+*.a
 *.d
+a.out
 *.swp
+
+# JetBrains project files
+.idea
+
+# put any other files you don't want to check in here,
+# such as .DS_Store (OSX), *.bak, etc.
+.DS_Store
+*.log
+*.bak
+
+cmake-build-debug/

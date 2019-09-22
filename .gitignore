@@ -9,11 +9,9 @@
 /LAcheck
 /LAdump
 /LAindex
-
-/LA4Falcon
-/LA4Ice
-/DB2Falcon
-/DB.so
+/LAa2b
+/LAb2a
+/dumpLA
 
 *.o
 *.so

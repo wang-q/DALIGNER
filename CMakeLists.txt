@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.6)
 project(DALIGNER)
 
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_C_STANDARD 11)
 
 set(SOURCE_FILES
         align.c
@@ -9,16 +9,15 @@ set(SOURCE_FILES
         daligner.c
         DB.c
         DB.h
-        DB2Falcon.c
+        dumpLA.c
         filter.c
         filter.h
         HPC.daligner.c
-        LA4Falcon.c
-        LA4Ice.c
+        LAa2b.c
+        LAb2a.c
         LAcat.c
         LAcheck.c
         LAdump.c
-        LAindex.c
         LAmerge.c
         LAshow.c
         LAsort.c

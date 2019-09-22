@@ -26,8 +26,6 @@ static char *Usage[] =
       "    <src1:db|dam> [ <src2:db|dam> ] <align:las> [ <reads:FILE> | <reads:range> ... ]"
     };
 
-#define LAST_READ_SYMBOL  '$'
-
 static int ORDER(const void *l, const void *r)
 { int x = *((int *) l);
   int y = *((int *) r);
@@ -35,8 +33,8 @@ static int ORDER(const void *l, const void *r)
 }
 
 int main(int argc, char *argv[])
-{ HITS_DB   _db1, *db1 = &_db1; 
-  HITS_DB   _db2, *db2 = &_db2; 
+{ DAZZ_DB   _db1, *db1 = &_db1; 
+  DAZZ_DB   _db2, *db2 = &_db2; 
   Overlap   _ovl, *ovl = &_ovl;
   Alignment _aln, *aln = &_aln;
 
@@ -96,6 +94,17 @@ int main(int argc, char *argv[])
     if (argc <= 2)
       { fprintf(stderr,"Usage: %s %s\n",Prog_Name,Usage[0]);
         fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[1]);
+        fprintf(stderr,"\n");
+        fprintf(stderr,"      -c: Show a cartoon of the LA between reads.\n");
+        fprintf(stderr,"      -a: Show the alignment of each LA.\n");
+        fprintf(stderr,"      -r: Show the alignment of each LA with -w bp's of A in each row.\n");
+        fprintf(stderr,"      -o: Show only proper overlaps.\n");
+        fprintf(stderr,"      -F: Switch the roles of A- and B-reads.\n");
+        fprintf(stderr,"\n");
+        fprintf(stderr,"      -U: Show alignments in upper case.\n");
+        fprintf(stderr,"      -i: Indent alignments and cartoons by -i.\n");
+        fprintf(stderr,"      -w: Width of each row of alignment in symbols (-a) or bps (-r).\n");
+        fprintf(stderr,"      -b: # of border bp.s to show on each side of LA.\n");
         exit (1);
       }
   }
@@ -284,15 +293,15 @@ int main(int argc, char *argv[])
       exit (1);
 
     if (fread(&novl,sizeof(int64),1,input) != 1)
-      SYSTEM_ERROR
+      SYSTEM_READ_ERROR
     if (fread(&tspace,sizeof(int),1,input) != 1)
-      SYSTEM_ERROR
-    if (tspace <= 0)
-      { fprintf(stderr,"%s: Garbage .las file, trace spacing <= 0 !\n",Prog_Name);
+      SYSTEM_READ_ERROR
+    if (tspace < 0)
+      { fprintf(stderr,"%s: Garbage .las file, trace spacing < 0 !\n",Prog_Name);
         exit (1);
       }
 
-    if (tspace <= TRACE_XOVR)
+    if (tspace <= TRACE_XOVR && tspace != 0)
       { small  = 1;
         tbytes = sizeof(uint8);
       }
@@ -353,12 +362,18 @@ int main(int argc, char *argv[])
     if (db1->maxlen < db2->maxlen)
       { mn_wide = ai_wide;
         mx_wide = bi_wide;
-        tp_wide = Number_Digits((int64) db1->maxlen/tspace+2);
+        if (tspace > 0)
+          tp_wide = Number_Digits((int64) db1->maxlen/tspace+2);
+        else
+          tp_wide = 0;
       }
     else
       { mn_wide = bi_wide;
         mx_wide = ai_wide;
-        tp_wide = Number_Digits((int64) db2->maxlen/tspace+2);
+        if (tspace > 0)
+          tp_wide = Number_Digits((int64) db2->maxlen/tspace+2);
+        else
+          tp_wide = 0;
       }
     ar_wide += (ar_wide-1)/3;
     br_wide += (br_wide-1)/3;
@@ -392,6 +407,15 @@ int main(int argc, char *argv[])
           }
         ovl->path.trace = (void *) trace;
         Read_Trace(input,ovl,tbytes);
+
+        if (ovl->aread >= db1->nreads)
+          { fprintf(stderr,"%s: A-read is out-of-range of DB %s\n",Prog_Name,argv[1]);
+            exit (1);
+          }
+        if (ovl->bread >= db2->nreads)
+          { fprintf(stderr,"%s: B-read is out-of-range of DB %s\n",Prog_Name,argv[1+ISTWO]);
+            exit (1);
+          }
 
         //  Determine if it should be displayed
 
@@ -514,15 +538,20 @@ int main(int argc, char *argv[])
         else
           printf("]");
 
+        if (!CARTOON)
+          printf("  ~  %5.2f%% ",(200.*ovl->path.diffs) /
+                 ((ovl->path.aepos - ovl->path.abpos) + (ovl->path.bepos - ovl->path.bbpos)) );
+        printf("  (");
+        Print_Number(aln->alen,ai_wide,stdout);
+        printf(" x ");
+        Print_Number(aln->blen,bi_wide,stdout);
+        printf(" bps,");
         if (CARTOON)
-          { printf("  (");
-            Print_Number(tps,tp_wide,stdout);
+          { Print_Number(tps,tp_wide,stdout);
             printf(" trace pts)\n\n");
           }
         else
-          { printf("  ~  %4.1f%%   (",(200.*ovl->path.diffs) /
-                    ((ovl->path.aepos - ovl->path.abpos) + (ovl->path.bepos - ovl->path.bbpos)) );
-            Print_Number((int64) ovl->path.diffs,mn_wide,stdout);
+          { Print_Number((int64) ovl->path.diffs,mn_wide,stdout);
             printf(" diffs, ");
             Print_Number(tps,tp_wide,stdout);
             printf(" trace pts)\n");
@@ -581,7 +610,10 @@ int main(int argc, char *argv[])
                 else
                   aln->bseq = bseq - bmin;
 
-                Compute_Trace_PTS(aln,work,tspace,GREEDIEST);
+                if (tspace == 0)
+                  Compute_Trace_IRR(aln,work,GREEDIEST);
+                else
+                  Compute_Trace_PTS(aln,work,tspace,GREEDIEST);
 
                 if (FLIP)
                   { if (COMP(aln->flags))

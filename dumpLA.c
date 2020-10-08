@@ -15,8 +15,9 @@ int main(int argc, char *argv[])
   int     len;
   int     tspace, small, tbytes;
   uint8  *tbuffer = NULL;
-  uint16 *sbuffer;
+  uint16 *sbuffer = NULL;
   int     hasNext, haveC, haveT, haveD;
+  int     nline;
   int     i;
   int64   novls;
   Overlap _ovl, *ovl = &_ovl;
@@ -27,7 +28,7 @@ int main(int argc, char *argv[])
   //  Process arguments
 
   if (argc != 2)
-    { fprintf(stderr,"Usage: DumpLA <align:las> < (ascii dump)\n");
+    { fprintf(stderr,"Usage: dumpLA <align:las> < (ascii dump)\n");
       exit (1);
     }
 
@@ -40,6 +41,9 @@ int main(int argc, char *argv[])
   free(root);
   free(pwd);
 
+  nline   = 1;
+  small   = 0;
+  tbytes  = 2;
   hasNext = 0;
   while (scanf(" %c",&code) == 1)       //  Header lines
     if (code == '@' || code == '+' || code == '%')
@@ -48,28 +52,30 @@ int main(int argc, char *argv[])
           { tbuffer = (uint8 *) malloc(2*total*sizeof(uint16));
             sbuffer = (uint16 *) tbuffer;
           }
+        nline += 1;
       }
     else
       { if (tbuffer == NULL)
-          { fprintf(stderr,"DumpLA: .las dump must contain trace header lines\n");
+          { fprintf(stderr,"DumpLA: Line %d: .las dump must contain trace header lines\n",nline);
             exit (1);
           }
         if (code != 'X')
-          { fprintf(stderr,"DumpLA: .las dump must have an X-line after header\n");
+          { fprintf(stderr,"DumpLA: Line %d: .las dump must have an X-line after header\n",nline);
             exit (1);
           }
         scanf(" %d",&tspace);
         if (tspace <= TRACE_XOVR && tspace != 0)
-          { small = 1;
+          { small  = 1;
             tbytes = 1;
           }
         else
-          { small = 0;
+          { small  = 0;
             tbytes = 2;
           }
+        nline += 1;
         if (scanf(" %c",&code) == 1)
           { if (code != 'P')
-              { fprintf(stderr,"DumpLA: .las dump data must being with a P-line\n");
+              { fprintf(stderr,"DumpLA: Line %d: .las dump data must being with a P-line\n",nline);
                 exit (1);
               }
             hasNext = 1;
@@ -83,6 +89,7 @@ int main(int argc, char *argv[])
 
   while (hasNext)       //  For each data line do
     { scanf(" %d %d %c %c",&aread,&bread,&orient,&chain);
+      nline += 1;
       haveC = haveT = haveD = 0;
       hasNext = 0;
       while (scanf(" %c",&code) == 1)       //  For each data line do
@@ -94,18 +101,22 @@ int main(int argc, char *argv[])
           switch (code)
           { case 'L':                         //  Read lengths
               scanf(" %d %d",&alen,&blen);
+              nline += 1;
               break;
             case 'C':                         //  Coordinate intervals
               scanf(" %d %d %d %d",&ab,&ae,&bb,&be);
+              nline += 1;
               haveC = 1;
               break;
             case 'D':                         //  Differences
               scanf(" %d",&diffs);
+              nline += 1;
               haveD = 1;
               break;
             case 'T':                         //  Mask
               haveT = 1;
               scanf(" %d",&len);
+              nline += (len+1);
               len *= 2;
               if (small)
                 { for (int i = 0; i < len; i += 2)
@@ -117,15 +128,15 @@ int main(int argc, char *argv[])
                 }
               break;
             default:
-              fprintf(stderr,"DumpLA: Unrecognized line type '%c'\n",code);
+              fprintf(stderr,"DumpLA: Line %d: Unrecognized line type '%c'\n",nline,code);
               exit (1);
           }
       if (!haveC)
-        { fprintf(stderr,"DumpLA: Alignment record does not have a C-line\n");
+        { fprintf(stderr,"DumpLA: Line %d: Alignment record does not have a C-line\n",nline);
             exit (1);
         }
       if (!haveT)
-        { fprintf(stderr,"DumpLA: Alignment record does not have a T-line\n");
+        { fprintf(stderr,"DumpLA: Line %d: Alignment record does not have a T-line\n",nline);
             exit (1);
         }
       if (!haveD)

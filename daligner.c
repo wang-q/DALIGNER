@@ -40,6 +40,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <sys/resource.h>
 
 #include <sys/param.h>
 #if defined(BSD)
@@ -51,10 +52,10 @@
 #include "filter.h"
 
 static char *Usage[] =
-  { "[-vaAI] [-k<int(16)>] [-w<int(6)>] [-h<int(50)>] [-t<int>] [-M<int>]",
-    "        [-e<double(.75)] [-l<int(1500)>] [-s<int(100)>] [-H<int>]",
-    "        [-T<int(4)>] [-P<dir(/tmp)>] [-m<track>]+",
-    "        <subject:db|dam> <target:db|dam> ...",
+  { "[-vaABI] [-k<int(16)>] [-%<int(28)>] [-h<int(50)>] [-w<int(6)>] [-t<int>]",
+    "         [-M<int>] [-e<double(.75)] [-l<int(1500)>] [-s<int(100)>] [-H<int>]",
+    "         [-T<int(4)>] [-P<dir(/tmp)>] [-m<track>]+",
+    "         <subject:db|dam> <target:db|dam> ...",
   };
 
 int     VERBOSE;   //   Globally visible to filter.c
@@ -62,6 +63,7 @@ int     MINOVER;
 int     HGAP_MIN;
 int     SYMMETRIC;
 int     IDENTITY;
+int     BRIDGE;
 char   *SORT_PATH;
 
 uint64  MEM_LIMIT;
@@ -460,6 +462,7 @@ int main(int argc, char *argv[])
   char      **MASK;
 
   int    KMER_LEN;
+  int    MOD_THR;
   int    BIN_SHIFT;
   int    MAX_REPS;
   int    HIT_MIN;
@@ -467,6 +470,12 @@ int main(int argc, char *argv[])
   int    SPACING;
   int    NTHREADS;
   int    MAP_ORDER;
+
+#ifdef PROFILE
+  struct rusage stime, etime;
+
+  getrusage(RUSAGE_SELF, &stime);
+#endif
 
   { int    i, j, k;
     int    flags[128];
@@ -476,6 +485,7 @@ int main(int argc, char *argv[])
     ARG_INIT("daligner2.0")
 
     KMER_LEN  = 16;
+    MOD_THR   = 28;
     HIT_MIN   = 50;
     BIN_SHIFT = 6;
     MAX_REPS  = 0;
@@ -505,7 +515,7 @@ int main(int argc, char *argv[])
       if (argv[i][0] == '-')
         switch (argv[i][1])
         { default:
-            ARG_FLAGS("vaAI")
+            ARG_FLAGS("vaABI")
             break;
           case 'k':
             ARG_POSITIVE(KMER_LEN,"K-mer length")
@@ -555,6 +565,7 @@ int main(int argc, char *argv[])
                 if (MASK == NULL || MSTAT == NULL)
                   exit (1);
               }
+            MSTAT[MTOP]  = 0;
             MASK[MTOP++] = argv[i]+2;
             break;
           case 'P':
@@ -568,6 +579,9 @@ int main(int argc, char *argv[])
           case 'T':
             ARG_POSITIVE(NTHREADS,"Number of threads")
             break;
+          case '%':
+            ARG_POSITIVE(MOD_THR,"Modimer percentage")
+            break;
         }
       else
         argv[j++] = argv[i];
@@ -576,6 +590,7 @@ int main(int argc, char *argv[])
     VERBOSE   = flags['v'];   //  Globally declared in filter.h
     SYMMETRIC = 1-flags['A'];
     IDENTITY  = flags['I'];
+    BRIDGE    = flags['B'];
     MAP_ORDER = flags['a'];
 
     if (argc <= 2)
@@ -585,6 +600,7 @@ int main(int argc, char *argv[])
         fprintf(stderr,"       %*s %s\n",(int) strlen(Prog_Name),"",Usage[3]);
         fprintf(stderr,"\n");
         fprintf(stderr,"      -k: k-mer size (must be <= 32).\n");
+        fprintf(stderr,"      -%%: modimer percentage (take %% of the k-mers).\n");
         fprintf(stderr,"      -w: Look for k-mers in averlapping bands of size 2^-w.\n");
         fprintf(stderr,"      -h: A seed hit if the k-mers in band cover >= -h bps in the");
         fprintf(stderr," targest read.\n");
@@ -594,6 +610,7 @@ int main(int argc, char *argv[])
         fprintf(stderr,"      -e: Look for alignments with -e percent similarity.\n");
         fprintf(stderr,"      -l: Look for alignments of length >= -l.\n");
         fprintf(stderr,"      -s: The trace point spacing for encoding alignments.\n");
+        fprintf(stderr,"      -B: Bridge consecutive aligned segments into one if possible\n");
         fprintf(stderr,"      -H: HGAP option: align only target reads of length >= -H.\n");
         fprintf(stderr,"\n");
         fprintf(stderr,"      -T: Use -T threads.\n");
@@ -610,8 +627,8 @@ int main(int argc, char *argv[])
   }
 
   MINOVER *= 2;
-  Set_Filter_Params(KMER_LEN,BIN_SHIFT,MAX_REPS,HIT_MIN,NTHREADS);
-  Set_Radix_Params(NTHREADS,VERBOSE);
+  Set_Filter_Params(KMER_LEN,MOD_THR,BIN_SHIFT,MAX_REPS,HIT_MIN,NTHREADS);
+  Set_LSD_Params(NTHREADS,VERBOSE);
 
   // Create directory in SORT_PATH for file operations
 
@@ -638,20 +655,17 @@ int main(int argc, char *argv[])
     aroot = Root(afile,".db");
   apath = PathTo(afile);
 
+  asettings = New_Align_Spec( AVE_ERROR, SPACING, ablock->freq, 1);
+
   if (VERBOSE)
     printf("\nBuilding index for %s\n",aroot);
   aindex = Sort_Kmers(ablock,&alen);
-
-  asettings = New_Align_Spec( AVE_ERROR, SPACING, ablock->freq, 1);
 
   // Compare against reads in B in both orientations
 
   { int           i, j;
     Block_Looper *parse;
     char         *command;
-
-    for (j = 0; j < MTOP; j++)
-      MSTAT[j] = 0;
 
     for (i = 2; i < argc; i++)
       { parse = Parse_Block_DB_Arg(argv[i]);
@@ -696,7 +710,7 @@ int main(int argc, char *argv[])
             if (strcmp(broot,aroot) != 0 || strcmp(bpath,apath) != 0)
               { if (SYMMETRIC)
                   { sprintf(command,"LAsort %s %s %s/%s.%s.N%c",VERBOSE?"-v":"",
-                                MAP_ORDER?"-a":"",SORT_PATH,broot,aroot,BLOCK_SYMBOL);
+                                 MAP_ORDER?"-a":"",SORT_PATH,broot,aroot,BLOCK_SYMBOL);
                     SYSTEM_CHECK(command)
 
                     sprintf(command,"LAmerge %s %s %s.%s.las %s/%s.%s.N%c.S",VERBOSE?"-v":"",
@@ -721,7 +735,24 @@ int main(int argc, char *argv[])
   Close_DB(ablock);
   free(apath);
   free(aroot);
-  Clean_Exit(0);
 
+#ifdef PROFILE
+  { int64 secs, mics;
+
+    getrusage(RUSAGE_SELF, &etime);
+
+    secs  = etime.ru_utime.tv_sec  - stime.ru_utime.tv_sec;
+    mics  = etime.ru_utime.tv_usec - stime.ru_utime.tv_usec;
+    mics += 1000000*secs;
+
+    secs  = etime.ru_stime.tv_sec  - stime.ru_stime.tv_sec;
+    mics += etime.ru_stime.tv_usec - stime.ru_stime.tv_usec;
+    mics += 1000000*secs;
+
+    printf("T %lld\n",mics/1000);
+  }
+#endif
+
+  Clean_Exit(0);
   exit (0);
 }
